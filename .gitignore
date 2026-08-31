@@ -141,3 +141,28 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# ==========================================
+# Firebase (Private keys and emulator)
+# ==========================================
+*firebase-key.json
+*serviceAccountKey.json
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+
+# ==========================================
+# WhatsApp Bot Session and Authentication
+# ==========================================
+auth_info_baileys/
+session/
+tokens/
+wppconnect-tokens/
+
+# ==========================================
+# Additional local environments
+# ==========================================
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
