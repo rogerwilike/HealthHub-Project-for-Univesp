@@ -6,6 +6,7 @@ import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 
 // ==========================================
@@ -20,19 +21,62 @@ initializeApp({
 });
 
 const db = getFirestore();
+const geminiApiKey = process.env.GEMINI_API_KEY;
+const geminiModel = geminiApiKey
+    ? new GoogleGenerativeAI(geminiApiKey).getGenerativeModel({ model: 'gemini-3.6-flash' })
+    : null;
 
 // ==========================================
 // 2. Parser de Texto e Gravação no Banco
 // ==========================================
+async function extrairLembreteComGemini(texto) {
+    if (!geminiModel) return null;
+
+    const prompt = `
+Extraia um lembrete de medicamento da mensagem abaixo.
+Responda apenas com JSON válido neste formato: {"medicamento": string|null, "horario": string|null}.
+Use horário 24 horas no formato HH:MM. Se a mensagem não contiver medicamento e horário, use null nos campos.
+Não invente informações.
+
+Mensagem: ${texto}
+    `;
+
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+        try {
+            const result = await geminiModel.generateContent(prompt);
+            const resposta = result.response.text().replace(/^```json\s*|\s*```$/g, '').trim();
+            const lembrete = JSON.parse(resposta);
+
+            if (typeof lembrete.medicamento !== 'string' || !/^\d{1,2}:\d{2}$/.test(lembrete.horario)) {
+                return null;
+            }
+
+            return {
+                medicamento: lembrete.medicamento.trim(),
+                horario: lembrete.horario.trim()
+            };
+        } catch (err) {
+            const indisponivel = err.message.includes('503') || err.message.includes('Service Unavailable');
+            if (!indisponivel || tentativa === 2) {
+                console.warn('Gemini indisponível; usando o parser local:', err.message);
+                return null;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+    }
+}
+
 async function processarEGravarMensagem(jid, texto) {
     // Regex para capturar formatos como:
     // "Tomar Paracetamol 500mg às 08:00" ou "Dipirona as 14:30"
     const regex = /(?:tomar|remedio)?\s*([a-zA-ZÀ-ÿ0-9\s]+?)\s+(?:às|as|horario|horário)\s+(\d{1,2}:\d{2})/i;
     const match = texto.match(regex);
+    const dadosGemini = await extrairLembreteComGemini(texto);
 
-    if (match) {
-        const medicamento = match[1].trim();
-        const horario = match[2].trim();
+    if (match || dadosGemini) {
+        const medicamento = dadosGemini?.medicamento || match[1].trim();
+        const horario = dadosGemini?.horario || match[2].trim();
         const numeroTelefone = jid.split('@')[0]; // Extrai o número puro sem o sufixo @s.whatsapp.net
 
         try {

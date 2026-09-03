@@ -1,15 +1,13 @@
 {
-  "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc14",
-    "firebase-admin": "^14.3.0",
-    "pino": "^10.3.1",
-    "qrcode-terminal": "^0.12.0"
-  }
-}
-{
-  "name": "bot-medicamentos-whatsapp",
+  "name": "bot-medicamentos",
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
-  ...
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@whiskeysockets/baileys": "^6.7.13",
+    "firebase-admin": "^13.0.2",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "^0.12.0"
+  }
 }
