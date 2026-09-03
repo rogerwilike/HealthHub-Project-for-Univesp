@@ -6,7 +6,6 @@ import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 
 // ==========================================
@@ -21,44 +20,79 @@ initializeApp({
 });
 
 const db = getFirestore();
-const geminiApiKey = process.env.GEMINI_API_KEY;
-const geminiModel = geminiApiKey
-    ? new GoogleGenerativeAI(geminiApiKey).getGenerativeModel({ model: 'gemini-3.6-flash' })
-    : null;
+const xaiApiKey = process.env.XAI_API_KEY;
+const xaiModel = process.env.XAI_MODEL || 'grok-3-mini';
+const lembretesPendentes = new Map();
 
 // ==========================================
 // 2. Parser de Texto e Gravação no Banco
 // ==========================================
-async function extrairLembreteComGemini(texto) {
-    if (!geminiModel) return null;
+async function extrairLembreteComGrok(texto) {
+    if (!xaiApiKey) return null;
 
     const prompt = `
-Extraia um lembrete de medicamento da mensagem abaixo.
-Responda apenas com JSON válido neste formato: {"medicamento": string|null, "horario": string|null}.
-Use horário 24 horas no formato HH:MM. Se a mensagem não contiver medicamento e horário, use null nos campos.
-Não invente informações.
+Você é o assistente de lembretes de medicamentos. Analise a mensagem em português e identifique a intenção mesmo quando ela for informal, tiver erros de digitação ou não seguir um formato fixo.
+
+Extraia o nome do medicamento, a frequência e todos os horários mencionados.
+Converta horários informais para o formato 24 horas HH:MM: "às oito da manhã" vira "08:00", "duas da tarde" vira "14:00" e "meio-dia" vira "12:00".
+Entenda frases como "me lembra de tomar dipirona amanhã às 9", "vou tomar meu remédio às 18h" e "tome dipirona 3 vezes ao dia".
+Em "3 vezes ao dia", retorne frequencia como 3 e horarios como []. Se houver horários explícitos, coloque todos no array horarios.
+Para horários vagos ou ausentes, use []. Para frequência ausente, use null.
+Não invente medicamento, horário ou frequência. Responda apenas com JSON válido neste formato: {"medicamento": string|null, "frequencia": number|null, "horarios": string[]}.
 
 Mensagem: ${texto}
     `;
 
     for (let tentativa = 1; tentativa <= 2; tentativa++) {
         try {
-            const result = await geminiModel.generateContent(prompt);
-            const resposta = result.response.text().replace(/^```json\s*|\s*```$/g, '').trim();
+            const response = await fetch('https://api.x.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${xaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: xaiModel,
+                    temperature: 0,
+                    messages: [
+                        { role: 'system', content: 'Você extrai lembretes de medicamentos em português e responde somente com JSON válido.' },
+                        { role: 'user', content: prompt }
+                    ]
+                })
+            });
+
+            if (!response.ok) {
+                const detalhe = await response.text();
+                const erro = new Error(`HTTP ${response.status}: ${detalhe}`);
+                erro.status = response.status;
+                throw erro;
+            }
+
+            const result = await response.json();
+            const resposta = result.choices?.[0]?.message?.content
+                ?.replace(/^```json\s*|\s*```$/g, '')
+                .trim();
+            if (!resposta) return null;
+
             const lembrete = JSON.parse(resposta);
 
-            if (typeof lembrete.medicamento !== 'string' || !/^\d{1,2}:\d{2}$/.test(lembrete.horario)) {
+            const horarios = Array.isArray(lembrete.horarios)
+                ? lembrete.horarios.filter((horario) => /^\d{1,2}:\d{2}$/.test(horario))
+                : [];
+
+            if (typeof lembrete.medicamento !== 'string' || (!horarios.length && !Number.isInteger(lembrete.frequencia))) {
                 return null;
             }
 
             return {
                 medicamento: lembrete.medicamento.trim(),
-                horario: lembrete.horario.trim()
+                frequencia: Number.isInteger(lembrete.frequencia) ? lembrete.frequencia : null,
+                horarios
             };
         } catch (err) {
-            const indisponivel = err.message.includes('503') || err.message.includes('Service Unavailable');
+            const indisponivel = err.status === 429 || err.status >= 500 || err.message.includes('Service Unavailable');
             if (!indisponivel || tentativa === 2) {
-                console.warn('Gemini indisponível; usando o parser local:', err.message);
+                console.warn('Grok indisponível; usando o parser local:', err.message);
                 return null;
             }
 
@@ -72,11 +106,25 @@ async function processarEGravarMensagem(jid, texto) {
     // "Tomar Paracetamol 500mg às 08:00" ou "Dipirona as 14:30"
     const regex = /(?:tomar|remedio)?\s*([a-zA-ZÀ-ÿ0-9\s]+?)\s+(?:às|as|horario|horário)\s+(\d{1,2}:\d{2})/i;
     const match = texto.match(regex);
-    const dadosGemini = await extrairLembreteComGemini(texto);
+    const pendente = lembretesPendentes.get(jid);
+    const textoParaInterpretar = pendente
+        ? `Medicamento pendente: ${pendente.medicamento}. Frequência pendente: ${pendente.frequencia} vezes ao dia. Horários informados agora: ${texto}`
+        : texto;
+    const dadosGrok = await extrairLembreteComGrok(textoParaInterpretar);
 
-    if (match || dadosGemini) {
-        const medicamento = dadosGemini?.medicamento || match[1].trim();
-        const horario = dadosGemini?.horario || match[2].trim();
+    if (dadosGrok?.medicamento && dadosGrok.frequencia && !dadosGrok.horarios.length) {
+        lembretesPendentes.set(jid, {
+            medicamento: dadosGrok.medicamento,
+            frequencia: dadosGrok.frequencia
+        });
+        return `💊 Entendi: *${dadosGrok.medicamento}*, ${dadosGrok.frequencia} vezes ao dia.\n\nQuais horários você deseja usar? Exemplo: 08:00, 14:00 e 20:00.`;
+    }
+
+    if (match || dadosGrok) {
+        lembretesPendentes.delete(jid);
+        const medicamento = dadosGrok?.medicamento || match[1].trim();
+        const horarios = dadosGrok?.horarios?.length ? dadosGrok.horarios : [match[2].trim()];
+        const horario = horarios.join(', ');
         const numeroTelefone = jid.split('@')[0]; // Extrai o número puro sem o sufixo @s.whatsapp.net
 
         try {
@@ -84,11 +132,13 @@ async function processarEGravarMensagem(jid, texto) {
                 telefone: numeroTelefone,
                 medicamento: medicamento,
                 horario: horario,
+                frequencia: dadosGrok?.frequencia || horarios.length,
+                horarios: horarios,
                 textoOriginal: texto,
                 criadoEm: new Date()
             });
 
-            return `✅ Registrado com sucesso!\n\n💊 *Remédio:* ${medicamento}\n⏰ *Horário:* ${horario}`;
+            return `✅ Registrado com sucesso!\n\n💊 *Remédio:* ${medicamento}\n⏰ *Horários:* ${horario}`;
         } catch (err) {
             console.error('Erro ao salvar no Firestore:', err);
             return '❌ Ocorreu um erro ao salvar o lembrete no banco de dados.';
@@ -136,11 +186,14 @@ async function iniciarBot() {
 
     // Evento de recebimento de mensagens
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        console.log(`[Evento WhatsApp] messages.upsert: ${type}, ${messages.length} mensagem(ns)`);
         if (type !== 'notify') return;
 
         for (const msg of messages) {
             // Ignora mensagens enviadas pelo próprio bot ou de status/broadcast
-            if (msg.key.fromMe || msg.key.remoteJid.includes('@broadcast')) continue;
+            const remetente = msg.key.remoteJid;
+            if (!remetente) continue;
+            if (msg.key.fromMe || remetente.includes('@broadcast')) continue;
 
             // Extrai o conteúdo textual
             const textoMensagem = 
@@ -149,14 +202,17 @@ async function iniciarBot() {
 
             if (!textoMensagem) continue;
 
-            const remetente = msg.key.remoteJid;
             console.log(`[Mensagem Recebida] De: ${remetente} | Texto: ${textoMensagem}`);
 
-            // Processa a mensagem e envia para o banco
-            const resposta = await processarEGravarMensagem(remetente, textoMensagem);
+            try {
+                // Processa a mensagem e envia para o banco
+                const resposta = await processarEGravarMensagem(remetente, textoMensagem);
 
-            // Responde o usuário no WhatsApp
-            await sock.sendMessage(remetente, { text: resposta }, { quoted: msg });
+                // Responde o usuário no WhatsApp
+                await sock.sendMessage(remetente, { text: resposta }, { quoted: msg });
+            } catch (err) {
+                console.error('Erro ao processar mensagem:', err);
+            }
         }
     });
 }

@@ -3,10 +3,11 @@ Project with a web framework that uses a database, includes web scripting (Javas
 
 ## Configuração
 
-O bot usa o Gemini para interpretar mensagens de lembretes. Configure a chave como variável de ambiente antes de iniciar:
+O bot usa o Grok para interpretar mensagens de lembretes. Configure a chave como variável de ambiente antes de iniciar:
 
 ```powershell
-$env:GEMINI_API_KEY = "sua-chave-do-gemini"
+$env:XAI_API_KEY = "sua-chave-da-xai"
+$env:XAI_MODEL = "grok-3-mini"
 node index.js
 ```
 
