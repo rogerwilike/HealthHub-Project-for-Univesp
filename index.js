@@ -58,7 +58,13 @@ async function obterTelefoneDoContato(msg) {
 }
 
 function extrairHorarios(texto) {
-    const horarios = texto.match(/(?:[01]?\d|2[0-3]):[0-5]\d/g) || [];
+    const horarios = [];
+    const padrao = /(?:^|[\s,;])([01]?\d|2[0-3])(?::([0-5]\d))?(?=$|[\s,;])/g;
+    for (const correspondencia of texto.matchAll(padrao)) {
+        const hora = correspondencia[1].padStart(2, '0');
+        const minutos = correspondencia[2] || '00';
+        horarios.push(`${hora}:${minutos}`);
+    }
     return [...new Set(horarios)];
 }
 
@@ -177,13 +183,13 @@ async function processarMensagem(jid, texto, telefone) {
             }
             sessao.dados.frequencia = frequencia;
             sessao.estado = ESTADOS.HORARIOS;
-            return `Informe ${frequencia === 1 ? 'o horário' : 'os ' + frequencia + ' horários'} no formato HH:MM, separados por vírgula.\n\nExemplo: 08:00${frequencia > 1 ? ', 14:00' : ''}`;
+            return `Informe ${frequencia === 1 ? 'o horário' : 'os ' + frequencia + ' horários'} como hora inteira ou no formato HH:MM, separados por vírgula.\n\nExemplo: 8${frequencia > 1 ? ', 14:30' : ''}`;
         }
 
         case ESTADOS.HORARIOS: {
             const horarios = extrairHorarios(texto);
             if (horarios.length !== sessao.dados.frequencia) {
-                return `Informe exatamente ${sessao.dados.frequencia} horário(s) válidos no formato HH:MM.`;
+                return `Informe exatamente ${sessao.dados.frequencia} horário(s) válidos. Você pode usar 8, 14:30 ou 20.`;
             }
             sessao.dados.horarios = horarios;
             sessao.estado = ESTADOS.CONFIRMACAO;
