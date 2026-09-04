@@ -20,132 +20,111 @@ initializeApp({
 });
 
 const db = getFirestore();
-const xaiApiKey = process.env.XAI_API_KEY;
-const xaiModel = process.env.XAI_MODEL || 'grok-3-mini';
-const lembretesPendentes = new Map();
+const estados = new Map();
 
-// ==========================================
-// 2. Parser de Texto e Gravação no Banco
-// ==========================================
-async function extrairLembreteComGrok(texto) {
-    if (!xaiApiKey) return null;
+const ESTADOS = {
+    MEDICAMENTO: 'medicamento',
+    FREQUENCIA: 'frequencia',
+    HORARIOS: 'horarios',
+    CONFIRMACAO: 'confirmacao'
+};
 
-    const prompt = `
-Você é o assistente de lembretes de medicamentos. Analise a mensagem em português e identifique a intenção mesmo quando ela for informal, tiver erros de digitação ou não seguir um formato fixo.
-
-Extraia o nome do medicamento, a frequência e todos os horários mencionados.
-Converta horários informais para o formato 24 horas HH:MM: "às oito da manhã" vira "08:00", "duas da tarde" vira "14:00" e "meio-dia" vira "12:00".
-Entenda frases como "me lembra de tomar dipirona amanhã às 9", "vou tomar meu remédio às 18h" e "tome dipirona 3 vezes ao dia".
-Em "3 vezes ao dia", retorne frequencia como 3 e horarios como []. Se houver horários explícitos, coloque todos no array horarios.
-Para horários vagos ou ausentes, use []. Para frequência ausente, use null.
-Não invente medicamento, horário ou frequência. Responda apenas com JSON válido neste formato: {"medicamento": string|null, "frequencia": number|null, "horarios": string[]}.
-
-Mensagem: ${texto}
-    `;
-
-    for (let tentativa = 1; tentativa <= 2; tentativa++) {
-        try {
-            const response = await fetch('https://api.x.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${xaiApiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: xaiModel,
-                    temperature: 0,
-                    messages: [
-                        { role: 'system', content: 'Você extrai lembretes de medicamentos em português e responde somente com JSON válido.' },
-                        { role: 'user', content: prompt }
-                    ]
-                })
-            });
-
-            if (!response.ok) {
-                const detalhe = await response.text();
-                const erro = new Error(`HTTP ${response.status}: ${detalhe}`);
-                erro.status = response.status;
-                throw erro;
-            }
-
-            const result = await response.json();
-            const resposta = result.choices?.[0]?.message?.content
-                ?.replace(/^```json\s*|\s*```$/g, '')
-                .trim();
-            if (!resposta) return null;
-
-            const lembrete = JSON.parse(resposta);
-
-            const horarios = Array.isArray(lembrete.horarios)
-                ? lembrete.horarios.filter((horario) => /^\d{1,2}:\d{2}$/.test(horario))
-                : [];
-
-            if (typeof lembrete.medicamento !== 'string' || (!horarios.length && !Number.isInteger(lembrete.frequencia))) {
-                return null;
-            }
-
-            return {
-                medicamento: lembrete.medicamento.trim(),
-                frequencia: Number.isInteger(lembrete.frequencia) ? lembrete.frequencia : null,
-                horarios
-            };
-        } catch (err) {
-            const indisponivel = err.status === 429 || err.status >= 500 || err.message.includes('Service Unavailable');
-            if (!indisponivel || tentativa === 2) {
-                console.warn('Grok indisponível; usando o parser local:', err.message);
-                return null;
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-        }
-    }
+function menu() {
+    return '🏥 *HealthHub*\n\nEscolha uma opção:\n\n1 - Cadastrar lembrete\n2 - Ajuda\n0 - Cancelar';
 }
 
-async function processarEGravarMensagem(jid, texto) {
-    // Regex para capturar formatos como:
-    // "Tomar Paracetamol 500mg às 08:00" ou "Dipirona as 14:30"
-    const regex = /(?:tomar|remedio)?\s*([a-zA-ZÀ-ÿ0-9\s]+?)\s+(?:às|as|horario|horário)\s+(\d{1,2}:\d{2})/i;
-    const match = texto.match(regex);
-    const pendente = lembretesPendentes.get(jid);
-    const textoParaInterpretar = pendente
-        ? `Medicamento pendente: ${pendente.medicamento}. Frequência pendente: ${pendente.frequencia} vezes ao dia. Horários informados agora: ${texto}`
-        : texto;
-    const dadosGrok = await extrairLembreteComGrok(textoParaInterpretar);
+function extrairHorarios(texto) {
+    const horarios = texto.match(/(?:[01]?\d|2[0-3]):[0-5]\d/g) || [];
+    return [...new Set(horarios)];
+}
 
-    if (dadosGrok?.medicamento && dadosGrok.frequencia && !dadosGrok.horarios.length) {
-        lembretesPendentes.set(jid, {
-            medicamento: dadosGrok.medicamento,
-            frequencia: dadosGrok.frequencia
+function formatarResumo(dados) {
+    return `Confira os dados do lembrete:\n\n💊 *Remédio:* ${dados.medicamento}\n🔁 *Frequência:* ${dados.frequencia} vez(es) ao dia\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar`;
+}
+
+function iniciarCadastro(jid) {
+    estados.set(jid, { estado: ESTADOS.MEDICAMENTO, dados: {} });
+    return '📝 Vamos cadastrar um lembrete.\n\nDigite o nome do medicamento (inclua a dosagem, se quiser):';
+}
+
+async function salvarLembrete(jid, dados) {
+    const numeroTelefone = jid.split('@')[0];
+
+    try {
+        await db.collection('lembretes').add({
+            telefone: numeroTelefone,
+            medicamento: dados.medicamento,
+            horario: dados.horarios.join(', '),
+            frequencia: dados.frequencia,
+            horarios: dados.horarios,
+            criadoEm: new Date()
         });
-        return `💊 Entendi: *${dadosGrok.medicamento}*, ${dadosGrok.frequencia} vezes ao dia.\n\nQuais horários você deseja usar? Exemplo: 08:00, 14:00 e 20:00.`;
+
+        estados.delete(jid);
+        return `✅ Lembrete registrado com sucesso!\n\n💊 *Remédio:* ${dados.medicamento}\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\nDigite qualquer mensagem para voltar ao menu.`;
+    } catch (err) {
+        console.error('Erro ao salvar no Firestore:', err);
+        return '❌ Ocorreu um erro ao salvar o lembrete. Tente novamente pelo menu.';
+    }
+}
+// ==========================================
+// 2. Máquina de Estados e Gravação no Banco
+// ==========================================
+async function processarMensagem(jid, texto) {
+    const entrada = texto.trim().toLowerCase();
+    const sessao = estados.get(jid);
+
+    if (entrada === '0' || entrada === 'cancelar') {
+        estados.delete(jid);
+        return 'Cadastro cancelado.\n\n' + menu();
     }
 
-    if (match || dadosGrok) {
-        lembretesPendentes.delete(jid);
-        const medicamento = dadosGrok?.medicamento || match[1].trim();
-        const horarios = dadosGrok?.horarios?.length ? dadosGrok.horarios : [match[2].trim()];
-        const horario = horarios.join(', ');
-        const numeroTelefone = jid.split('@')[0]; // Extrai o número puro sem o sufixo @s.whatsapp.net
-
-        try {
-            await db.collection('lembretes').add({
-                telefone: numeroTelefone,
-                medicamento: medicamento,
-                horario: horario,
-                frequencia: dadosGrok?.frequencia || horarios.length,
-                horarios: horarios,
-                textoOriginal: texto,
-                criadoEm: new Date()
-            });
-
-            return `✅ Registrado com sucesso!\n\n💊 *Remédio:* ${medicamento}\n⏰ *Horários:* ${horario}`;
-        } catch (err) {
-            console.error('Erro ao salvar no Firestore:', err);
-            return '❌ Ocorreu um erro ao salvar o lembrete no banco de dados.';
+    if (!sessao) {
+        if (entrada === '1') return iniciarCadastro(jid);
+        if (entrada === '2' || entrada === 'ajuda') {
+            return 'ℹ️ Escolha *1* no menu para cadastrar um lembrete.\nDurante o cadastro, use *0* para cancelar.\n\n' + menu();
         }
+        return menu();
     }
 
-    return '⚠️ Não compreendi o padrão. Envie no formato:\n*Nome do Remédio às HH:MM*\n\n_Exemplo: Dipirona 500mg às 14:00_';
+    switch (sessao.estado) {
+        case ESTADOS.MEDICAMENTO:
+            if (entrada.length < 2 || /^\d+$/.test(entrada)) {
+                return 'Digite um nome de medicamento válido. Exemplo: Dipirona 500mg.';
+            }
+            sessao.dados.medicamento = texto.trim();
+            sessao.estado = ESTADOS.FREQUENCIA;
+            return 'Quantas vezes ao dia você deseja receber o lembrete?\n\n1 - Uma vez\n2 - Duas vezes\n3 - Três vezes\n4 - Quatro vezes';
+
+        case ESTADOS.FREQUENCIA: {
+            const frequencia = Number(entrada);
+            if (!Number.isInteger(frequencia) || frequencia < 1 || frequencia > 4) {
+                return 'Escolha uma opção de 1 a 4 para a frequência.';
+            }
+            sessao.dados.frequencia = frequencia;
+            sessao.estado = ESTADOS.HORARIOS;
+            return `Informe ${frequencia === 1 ? 'o horário' : 'os ' + frequencia + ' horários'} no formato HH:MM, separados por vírgula.\n\nExemplo: 08:00${frequencia > 1 ? ', 14:00' : ''}`;
+        }
+
+        case ESTADOS.HORARIOS: {
+            const horarios = extrairHorarios(texto);
+            if (horarios.length !== sessao.dados.frequencia) {
+                return `Informe exatamente ${sessao.dados.frequencia} horário(s) válidos no formato HH:MM.`;
+            }
+            sessao.dados.horarios = horarios;
+            sessao.estado = ESTADOS.CONFIRMACAO;
+            return formatarResumo(sessao.dados);
+        }
+
+        case ESTADOS.CONFIRMACAO:
+            if (entrada === '1' || entrada === 'sim') return salvarLembrete(jid, sessao.dados);
+            if (entrada === '2' || entrada === 'corrigir') return iniciarCadastro(jid);
+            return 'Escolha 1 para confirmar, 2 para corrigir ou 0 para cancelar.';
+
+        default:
+            estados.delete(jid);
+            return menu();
+    }
 }
 
 // ==========================================
@@ -205,8 +184,7 @@ async function iniciarBot() {
             console.log(`[Mensagem Recebida] De: ${remetente} | Texto: ${textoMensagem}`);
 
             try {
-                // Processa a mensagem e envia para o banco
-                const resposta = await processarEGravarMensagem(remetente, textoMensagem);
+                const resposta = await processarMensagem(remetente, textoMensagem);
 
                 // Responde o usuário no WhatsApp
                 await sock.sendMessage(remetente, { text: resposta }, { quoted: msg });

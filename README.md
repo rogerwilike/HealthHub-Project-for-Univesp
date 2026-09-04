@@ -3,12 +3,10 @@ Project with a web framework that uses a database, includes web scripting (Javas
 
 ## Configuração
 
-O bot usa o Grok para interpretar mensagens de lembretes. Configure a chave como variável de ambiente antes de iniciar:
+O bot usa um menu numérico guiado por máquina de estados para cadastrar lembretes, sem dependência de serviços de IA:
 
 ```powershell
-$env:XAI_API_KEY = "sua-chave-da-xai"
-$env:XAI_MODEL = "grok-3-mini"
 node index.js
 ```
 
-O arquivo `.env.example` mostra o nome da variável esperada. O arquivo `.env` e outras variações estão ignorados pelo Git; não coloque chaves reais no código ou no repositório.
+No WhatsApp, escolha `1` para cadastrar, informe o medicamento, a frequência, os horários em `HH:MM` e confirme o resumo. Use `0` para cancelar em qualquer etapa.
