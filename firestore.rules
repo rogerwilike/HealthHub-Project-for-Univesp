@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /lembretes/{lembreteId} {
+      // O bot usa o Admin SDK para gravar; o site apenas consulta.
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+  }
+}

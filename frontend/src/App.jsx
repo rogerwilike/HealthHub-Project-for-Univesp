@@ -6,6 +6,18 @@ function normalizarTelefone(telefone) {
   return telefone.replace(/\D/g, '');
 }
 
+function foiCriadoHoje(lembrete) {
+  const data = lembrete.criadoEm?.toDate
+    ? lembrete.criadoEm.toDate()
+    : new Date(lembrete.criadoEm);
+  const hoje = new Date();
+
+  return Number.isFinite(data.getTime())
+    && data.getFullYear() === hoje.getFullYear()
+    && data.getMonth() === hoje.getMonth()
+    && data.getDate() === hoje.getDate();
+}
+
 function App() {
   const [telefone, setTelefone] = useState(() => localStorage.getItem('healthhub-telefone') || '');
   const [telefoneConsultado, setTelefoneConsultado] = useState('');
@@ -43,6 +55,7 @@ function App() {
   }
 
   const proximoHorario = lembretes[0]?.horarios?.[0] || lembretes[0]?.horario || '--:--';
+  const lembretesHoje = lembretes.filter(foiCriadoHoje);
 
   return (
     <main className="app-shell">
@@ -82,8 +95,8 @@ function App() {
         </article>
         <article className="summary-card">
           <span className="card-label">Hoje</span>
-          <strong>{lembretes.length}</strong>
-          <span>{lembretes.length === 1 ? 'lembrete registrado' : 'lembretes registrados'}</span>
+          <strong>{lembretesHoje.length}</strong>
+          <span>{lembretesHoje.length === 1 ? 'lembrete registrado' : 'lembretes registrados'}</span>
         </article>
       </section>
 
