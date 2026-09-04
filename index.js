@@ -23,6 +23,7 @@ const db = getFirestore();
 const estados = new Map();
 
 const ESTADOS = {
+    NOME: 'nome',
     MEDICAMENTO: 'medicamento',
     FREQUENCIA: 'frequencia',
     HORARIOS: 'horarios',
@@ -39,12 +40,12 @@ function extrairHorarios(texto) {
 }
 
 function formatarResumo(dados) {
-    return `Confira os dados do lembrete:\n\n💊 *Remédio:* ${dados.medicamento}\n🔁 *Frequência:* ${dados.frequencia} vez(es) ao dia\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar`;
+    return `Confira os dados do lembrete:\n\n👤 *Nome:* ${dados.nome}\n💊 *Remédio:* ${dados.medicamento}\n🔁 *Frequência:* ${dados.frequencia} vez(es) ao dia\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar`;
 }
 
 function iniciarCadastro(jid) {
-    estados.set(jid, { estado: ESTADOS.MEDICAMENTO, dados: {} });
-    return '📝 Vamos cadastrar um lembrete.\n\nDigite o nome do medicamento (inclua a dosagem, se quiser):';
+    estados.set(jid, { estado: ESTADOS.NOME, dados: {} });
+    return '📝 Vamos cadastrar um lembrete.\n\nQual é o seu nome?';
 }
 
 async function salvarLembrete(jid, dados) {
@@ -53,6 +54,7 @@ async function salvarLembrete(jid, dados) {
     try {
         await db.collection('lembretes').add({
             telefone: numeroTelefone,
+            nome: dados.nome,
             medicamento: dados.medicamento,
             horario: dados.horarios.join(', '),
             frequencia: dados.frequencia,
@@ -61,7 +63,7 @@ async function salvarLembrete(jid, dados) {
         });
 
         estados.delete(jid);
-        return `✅ Lembrete registrado com sucesso!\n\n💊 *Remédio:* ${dados.medicamento}\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\nDigite qualquer mensagem para voltar ao menu.`;
+        return `✅ Lembrete registrado com sucesso!\n\n👤 *Nome:* ${dados.nome}\n💊 *Remédio:* ${dados.medicamento}\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\nDigite qualquer mensagem para voltar ao menu.`;
     } catch (err) {
         console.error('Erro ao salvar no Firestore:', err);
         return '❌ Ocorreu um erro ao salvar o lembrete. Tente novamente pelo menu.';
@@ -88,6 +90,14 @@ async function processarMensagem(jid, texto) {
     }
 
     switch (sessao.estado) {
+        case ESTADOS.NOME:
+            if (entrada.length < 2 || /^\d+$/.test(entrada)) {
+                return 'Digite um nome válido. Exemplo: Maria Silva.';
+            }
+            sessao.dados.nome = texto.trim();
+            sessao.estado = ESTADOS.MEDICAMENTO;
+            return 'Digite o nome do medicamento (inclua a dosagem, se quiser):';
+
         case ESTADOS.MEDICAMENTO:
             if (entrada.length < 2 || /^\d+$/.test(entrada)) {
                 return 'Digite um nome de medicamento válido. Exemplo: Dipirona 500mg.';
