@@ -38,11 +38,23 @@ function extrairNumeroDoJid(jid) {
     return jid?.split('@')[0] || '';
 }
 
-function obterTelefoneDoContato(msg) {
+async function obterTelefoneDoContato(msg) {
     const jid = msg.key.remoteJid || '';
     const jidAlternativo = msg.key.remoteJidAlt || msg.key.participantAlt;
 
-    return extrairNumeroDoJid(jidAlternativo || jid);
+    if (jidAlternativo) return extrairNumeroDoJid(jidAlternativo);
+    if (!jid.endsWith('@lid')) return extrairNumeroDoJid(jid);
+
+    const lid = extrairNumeroDoJid(jid);
+    try {
+        const arquivoMapa = new URL(`./auth_info_baileys/lid-mapping-${lid}_reverse.json`, import.meta.url);
+        const telefone = JSON.parse(fs.readFileSync(arquivoMapa, 'utf8'));
+        if (typeof telefone === 'string') return telefone;
+    } catch (err) {
+        console.warn(`Não foi possível resolver o LID ${lid}:`, err.message);
+    }
+
+    return lid;
 }
 
 function extrairHorarios(texto) {
@@ -194,7 +206,7 @@ async function iniciarBot() {
             const remetente = msg.key.remoteJid;
             if (!remetente) continue;
             if (msg.key.fromMe || remetente.includes('@broadcast')) continue;
-            const telefone = obterTelefoneDoContato(msg);
+            const telefone = await obterTelefoneDoContato(msg);
 
             // Extrai o conteúdo textual
             const textoMensagem = 
