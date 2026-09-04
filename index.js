@@ -34,6 +34,17 @@ function menu() {
     return '🏥 *HealthHub*\n\nEscolha uma opção:\n\n1 - Cadastrar lembrete\n2 - Ajuda\n0 - Cancelar';
 }
 
+function extrairNumeroDoJid(jid) {
+    return jid?.split('@')[0] || '';
+}
+
+function obterTelefoneDoContato(msg) {
+    const jid = msg.key.remoteJid || '';
+    const jidAlternativo = msg.key.remoteJidAlt || msg.key.participantAlt;
+
+    return extrairNumeroDoJid(jidAlternativo || jid);
+}
+
 function extrairHorarios(texto) {
     const horarios = texto.match(/(?:[01]?\d|2[0-3]):[0-5]\d/g) || [];
     return [...new Set(horarios)];
@@ -43,13 +54,13 @@ function formatarResumo(dados) {
     return `Confira os dados do lembrete:\n\n👤 *Nome:* ${dados.nome}\n💊 *Remédio:* ${dados.medicamento}\n🔁 *Frequência:* ${dados.frequencia} vez(es) ao dia\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar`;
 }
 
-function iniciarCadastro(jid) {
-    estados.set(jid, { estado: ESTADOS.NOME, dados: {} });
+function iniciarCadastro(jid, telefone) {
+    estados.set(jid, { estado: ESTADOS.NOME, telefone, dados: {} });
     return '📝 Vamos cadastrar um lembrete.\n\nQual é o seu nome?';
 }
 
-async function salvarLembrete(jid, dados) {
-    const numeroTelefone = jid.split('@')[0];
+async function salvarLembrete(jid, dados, telefone) {
+    const numeroTelefone = telefone || extrairNumeroDoJid(jid);
 
     try {
         await db.collection('lembretes').add({
@@ -72,7 +83,7 @@ async function salvarLembrete(jid, dados) {
 // ==========================================
 // 2. Máquina de Estados e Gravação no Banco
 // ==========================================
-async function processarMensagem(jid, texto) {
+async function processarMensagem(jid, texto, telefone) {
     const entrada = texto.trim().toLowerCase();
     const sessao = estados.get(jid);
 
@@ -82,7 +93,7 @@ async function processarMensagem(jid, texto) {
     }
 
     if (!sessao) {
-        if (entrada === '1') return iniciarCadastro(jid);
+        if (entrada === '1') return iniciarCadastro(jid, telefone);
         if (entrada === '2' || entrada === 'ajuda') {
             return 'ℹ️ Escolha *1* no menu para cadastrar um lembrete.\nDurante o cadastro, use *0* para cancelar.\n\n' + menu();
         }
@@ -127,8 +138,8 @@ async function processarMensagem(jid, texto) {
         }
 
         case ESTADOS.CONFIRMACAO:
-            if (entrada === '1' || entrada === 'sim') return salvarLembrete(jid, sessao.dados);
-            if (entrada === '2' || entrada === 'corrigir') return iniciarCadastro(jid);
+            if (entrada === '1' || entrada === 'sim') return salvarLembrete(jid, sessao.dados, sessao.telefone);
+            if (entrada === '2' || entrada === 'corrigir') return iniciarCadastro(jid, sessao.telefone);
             return 'Escolha 1 para confirmar, 2 para corrigir ou 0 para cancelar.';
 
         default:
@@ -183,6 +194,7 @@ async function iniciarBot() {
             const remetente = msg.key.remoteJid;
             if (!remetente) continue;
             if (msg.key.fromMe || remetente.includes('@broadcast')) continue;
+            const telefone = obterTelefoneDoContato(msg);
 
             // Extrai o conteúdo textual
             const textoMensagem = 
@@ -191,10 +203,10 @@ async function iniciarBot() {
 
             if (!textoMensagem) continue;
 
-            console.log(`[Mensagem Recebida] De: ${remetente} | Texto: ${textoMensagem}`);
+            console.log(`[Mensagem Recebida] De: ${remetente} | Telefone: ${telefone} | Texto: ${textoMensagem}`);
 
             try {
-                const resposta = await processarMensagem(remetente, textoMensagem);
+                const resposta = await processarMensagem(remetente, textoMensagem, telefone);
 
                 // Responde o usuário no WhatsApp
                 await sock.sendMessage(remetente, { text: resposta }, { quoted: msg });
