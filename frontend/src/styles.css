@@ -25,6 +25,8 @@ h1 { margin-bottom: 0; font-size: 17px; font-weight: 600; }
 .phone-form > div { display: flex; gap: 10px; }
 .phone-form input { flex: 1; min-width: 0; padding: 13px 14px; border: 1px solid #c8c6bd; background: #fffdf8; color: #173330; font: inherit; }
 .phone-form button { padding: 13px 18px; border: 0; background: #e06f4e; color: #fffaf2; cursor: pointer; font: inherit; font-weight: 700; }
+.notification-button { padding: 11px 14px; border: 1px solid #63827b; background: transparent; color: #173f3b; cursor: pointer; font: inherit; font-weight: 700; }
+.notification-button:disabled { border-color: #b9d0c9; color: #667571; cursor: default; }
 .error-message { margin: 12px 0; color: #a23f2c; font-size: 14px; }
 .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 16px 0 54px; }
 .summary-card { display: flex; flex-direction: column; gap: 4px; min-height: 150px; padding: 24px; background: #fffdf8; border: 1px solid #dedbd2; }

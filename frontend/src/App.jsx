@@ -18,11 +18,18 @@ function foiCriadoHoje(lembrete) {
     && data.getDate() === hoje.getDate();
 }
 
+function horariosDoLembrete(lembrete) {
+  return lembrete.horarios || (lembrete.horario ? lembrete.horario.split(',').map((horario) => horario.trim()) : []);
+}
+
 function App() {
   const [telefone, setTelefone] = useState(() => localStorage.getItem('healthhub-telefone') || '');
   const [telefoneConsultado, setTelefoneConsultado] = useState('');
   const [lembretes, setLembretes] = useState([]);
   const [erro, setErro] = useState('');
+  const [notificacoesPermitidas, setNotificacoesPermitidas] = useState(
+    typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  );
 
   useEffect(() => {
     if (!db || !telefoneConsultado) return undefined;
@@ -42,6 +49,32 @@ function App() {
     });
   }, [telefoneConsultado]);
 
+  useEffect(() => {
+    if (!notificacoesPermitidas || lembretes.length === 0) return undefined;
+
+    const verificarHorarios = () => {
+      const agora = new Date();
+      const horarioAtual = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+      const chaveData = agora.toISOString().slice(0, 10);
+
+      lembretes.forEach((lembrete) => {
+        if (!horariosDoLembrete(lembrete).includes(horarioAtual)) return;
+        const chave = `healthhub-notificacao-${lembrete.id}-${chaveData}-${horarioAtual}`;
+        if (localStorage.getItem(chave)) return;
+
+        new Notification(`Hora do remédio: ${lembrete.medicamento}`, {
+          body: `Seu lembrete está marcado para ${horarioAtual}.`,
+          tag: chave,
+        });
+        localStorage.setItem(chave, 'enviada');
+      });
+    };
+
+    verificarHorarios();
+    const intervalo = setInterval(verificarHorarios, 15 * 1000);
+    return () => clearInterval(intervalo);
+  }, [lembretes, notificacoesPermitidas]);
+
   function consultarLembretes(event) {
     event.preventDefault();
     const numero = normalizarTelefone(telefone);
@@ -52,6 +85,16 @@ function App() {
     localStorage.setItem('healthhub-telefone', numero);
     setErro('');
     setTelefoneConsultado(numero);
+  }
+
+  async function ativarNotificacoes() {
+    if (typeof Notification === 'undefined') {
+      setErro('Seu navegador não oferece suporte a notificações.');
+      return;
+    }
+    const permissao = await Notification.requestPermission();
+    setNotificacoesPermitidas(permissao === 'granted');
+    if (permissao !== 'granted') setErro('Permissão para notificações não concedida.');
   }
 
   const proximoHorario = lembretes[0]?.horarios?.[0] || lembretes[0]?.horario || '--:--';
@@ -70,7 +113,7 @@ function App() {
       <section className="welcome-panel" aria-labelledby="welcome-title">
         <div>
           <p className="eyebrow">Painel de saúde</p>
-          <h2 id="welcome-title">Seus lembretes em um só lugar.</h2>
+          <h2 id="welcome-title">Ajudamos a manter seu tratamento em dia.</h2>
           <p className="panel-copy">Consulte os lembretes associados ao seu WhatsApp.</p>
         </div>
         <div className="status-chip"><span /> Bot conectado</div>
@@ -83,6 +126,10 @@ function App() {
           <button type="submit">Ver lembretes</button>
         </div>
       </form>
+
+      <button className="notification-button" type="button" onClick={ativarNotificacoes} disabled={notificacoesPermitidas}>
+        {notificacoesPermitidas ? 'Notificações ativadas' : 'Ativar notificações do navegador'}
+      </button>
 
       {erro && <p className="error-message" role="alert">{erro}</p>}
       {!firebaseConfigured && <p className="error-message" role="alert">Configure as variáveis VITE_FIREBASE_* na Vercel para conectar o site ao Firebase.</p>}

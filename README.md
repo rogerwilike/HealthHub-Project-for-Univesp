@@ -10,3 +10,5 @@ node index.js
 ```
 
 No WhatsApp, escolha `1` para cadastrar, informe o medicamento, a frequência, os horários em `HH:MM` e confirme o resumo. Use `0` para cancelar em qualquer etapa.
+
+O bot envia uma mensagem no WhatsApp no horário cadastrado enquanto o processo Node estiver rodando. O site também oferece notificações do navegador, mas é necessário permitir notificações e manter a página aberta.

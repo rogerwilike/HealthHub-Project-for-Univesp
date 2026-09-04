@@ -62,6 +62,47 @@ function extrairHorarios(texto) {
     return [...new Set(horarios)];
 }
 
+function horarioAtual() {
+    const agora = new Date();
+    return `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+}
+
+function chaveDaNotificacao() {
+    const agora = new Date();
+    return `${agora.toISOString().slice(0, 10)}-${horarioAtual()}`;
+}
+
+async function enviarNotificacoesPendentes(sock) {
+    const horario = horarioAtual();
+    const chave = chaveDaNotificacao();
+    const snapshot = await db.collection('lembretes').where('horarios', 'array-contains', horario).get();
+
+    for (const documento of snapshot.docs) {
+        const lembrete = documento.data();
+        const telefone = lembrete.telefone;
+        if (!telefone || telefone.includes('@')) continue;
+
+        const referencia = db.collection('lembretes').doc(documento.id);
+        const deveEnviar = await db.runTransaction(async (transacao) => {
+            const atual = await transacao.get(referencia);
+            if (atual.data()?.ultimaNotificacao === chave) return false;
+            transacao.update(referencia, { ultimaNotificacao: chave });
+            return true;
+        });
+
+        if (!deveEnviar) continue;
+
+        try {
+            await sock.sendMessage(`${telefone}@s.whatsapp.net`, {
+                text: `⏰ *Hora do remédio!*\n\n💊 ${lembrete.medicamento}\n\nEste é o horário que você informou para tomar seu medicamento.`
+            });
+            console.log(`[Notificação enviada] ${telefone} - ${lembrete.medicamento} - ${horario}`);
+        } catch (err) {
+            console.error(`Erro ao enviar notificação para ${telefone}:`, err.message);
+        }
+    }
+}
+
 function formatarResumo(dados) {
     return `Confira os dados do lembrete:\n\n👤 *Nome:* ${dados.nome}\n💊 *Remédio:* ${dados.medicamento}\n🔁 *Frequência:* ${dados.frequencia} vez(es) ao dia\n⏰ *Horários:* ${dados.horarios.join(', ')}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar`;
 }
@@ -190,6 +231,14 @@ async function iniciarBot() {
             }
         } else if (connection === 'open') {
             console.log('🚀 Bot conectado com sucesso ao WhatsApp!');
+            enviarNotificacoesPendentes(sock).catch((err) => {
+                console.error('Erro no agendador de notificações:', err.message);
+            });
+            setInterval(() => {
+                enviarNotificacoesPendentes(sock).catch((err) => {
+                    console.error('Erro no agendador de notificações:', err.message);
+                });
+            }, 60 * 1000);
         }
     });
 
