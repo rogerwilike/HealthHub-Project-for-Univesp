@@ -20,6 +20,12 @@ h1 { margin-bottom: 0; font-size: 17px; font-weight: 600; }
 .panel-copy { max-width: 450px; margin-bottom: 0; color: #b9d0c9; }
 .status-chip { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid #63827b; color: #dce9df; font-size: 13px; white-space: nowrap; }
 .status-chip span { width: 7px; height: 7px; border-radius: 50%; background: #e3b55b; }
+.phone-form { margin: 28px 0 16px; }
+.phone-form label { display: block; margin-bottom: 7px; color: #667571; font-size: 13px; font-weight: 700; }
+.phone-form > div { display: flex; gap: 10px; }
+.phone-form input { flex: 1; min-width: 0; padding: 13px 14px; border: 1px solid #c8c6bd; background: #fffdf8; color: #173330; font: inherit; }
+.phone-form button { padding: 13px 18px; border: 0; background: #e06f4e; color: #fffaf2; cursor: pointer; font: inherit; font-weight: 700; }
+.error-message { margin: 12px 0; color: #a23f2c; font-size: 14px; }
 .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 16px 0 54px; }
 .summary-card { display: flex; flex-direction: column; gap: 4px; min-height: 150px; padding: 24px; background: #fffdf8; border: 1px solid #dedbd2; }
 .accent-card { border-top: 4px solid #e06f4e; }
@@ -30,10 +36,18 @@ h1 { margin-bottom: 0; font-size: 17px; font-weight: 600; }
 .empty-icon { margin-bottom: 10px; color: #e06f4e; font-size: 38px; }
 .empty-state h2 { margin-bottom: 8px; font-family: Newsreader, Georgia, serif; font-size: 32px; font-weight: 500; }
 .empty-state p { margin-bottom: 0; color: #667571; }
+.reminder-list { border-top: 1px solid #d4d1c7; }
+.reminder-item { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 4px; border-bottom: 1px solid #d4d1c7; }
+.reminder-item div { display: flex; flex-direction: column; gap: 3px; }
+.reminder-item strong { font-size: 17px; }
+.reminder-item span { color: #667571; font-size: 13px; }
+.reminder-item time { color: #aa5138; font-weight: 700; }
 @media (max-width: 640px) {
   .app-shell { padding: 24px 16px 48px; }
   .topbar { margin-bottom: 40px; }
   .welcome-panel { align-items: start; flex-direction: column; padding: 28px 22px; }
   .welcome-panel h2 { font-size: 46px; }
   .summary-grid { grid-template-columns: 1fr; margin-bottom: 40px; }
+  .phone-form > div { align-items: stretch; flex-direction: column; }
+  .reminder-item { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
